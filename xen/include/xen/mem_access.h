@@ -77,6 +77,9 @@ int p2m_set_suppress_ve(struct domain *d, gfn_t gfn, bool suppress_ve,
 
 int p2m_get_suppress_ve(struct domain *d, gfn_t gfn, bool *suppress_ve,
                         unsigned int altp2m_idx);
+long p2m_isolate_pdomain(struct domain *d, gfn_t gfn, xenmem_access_t restr_access,
+                         unsigned int altp2m_idx, xenmem_access_t priv_access,
+			 bool suppress_ve);
 
 /*
  * Get access type for a gfn.

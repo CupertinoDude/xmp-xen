@@ -349,6 +349,66 @@ static bool xenmem_access_to_p2m_access(struct p2m_domain *p2m,
     return true;
 }
 
+long p2m_isolate_pdomain(struct domain *d, gfn_t gfn, xenmem_access_t restr_access,
+                         unsigned int altp2m_idx, xenmem_access_t priv_access,
+			 bool suppress_ve)
+{
+    struct p2m_domain *p2m = p2m_get_hostp2m(d), *ap2m = NULL;
+    mfn_t mfn;
+    p2m_type_t t;
+    p2m_access_t a;
+    p2m_access_t restr_a, priv_a;
+    int i, rc;
+
+    if ( altp2m_idx >= MAX_ALTP2M ||
+         d->arch.altp2m_eptp[altp2m_idx] == mfn_x(INVALID_MFN) )
+        return -EINVAL;
+
+    if ( !xenmem_access_to_p2m_access(p2m, restr_access, &restr_a) )
+        return -EINVAL;
+
+    if ( !xenmem_access_to_p2m_access(p2m, priv_access, &priv_a) )
+        return -EINVAL;
+
+    gfn_lock(p2m, gfn, 0);
+
+    for ( i = 1; i < MAX_ALTP2M; i++ )
+    {
+    	/* Only consider domains that have been created */
+	if ( d->arch.altp2m_eptp[i] == mfn_x(INVALID_MFN) )
+	    continue;
+
+        ap2m = d->arch.altp2m_p2m[i];
+
+        if ( !ap2m )
+	    continue;
+
+	p2m_lock(ap2m);
+
+        rc = altp2m_get_effective_entry(ap2m, gfn, &mfn, &t, &a, AP2MGET_query);
+
+	if ( rc ) {
+	    p2m_unlock(ap2m);
+	    break;
+	}
+
+	if ( i == altp2m_idx ) {
+            rc = p2m->set_entry(ap2m, gfn, mfn, PAGE_ORDER_4K, t, priv_a, suppress_ve);
+	} else {
+            rc = p2m->set_entry(ap2m, gfn, mfn, PAGE_ORDER_4K, t, restr_a, suppress_ve);
+	}
+
+        p2m_unlock(ap2m);
+
+        if ( rc )
+            break;
+    }
+
+    gfn_unlock(p2m, gfn, 0);
+
+    return rc;
+}
+
 /*
  * Set access type for a region of gfns.
  * If gfn == INVALID_GFN, sets the default access type.

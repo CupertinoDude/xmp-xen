@@ -4,7 +4,7 @@
  * Copyright (c) 2004, Intel Corporation.
  * Copyright (c) 2005, International Business Machines Corporation.
  * Copyright (c) 2008, Citrix Systems, Inc.
- * 
+ *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms and conditions of the GNU General Public License,
  * version 2, as published by the Free Software Foundation.
@@ -74,6 +74,9 @@
 #include <public/vm_event.h>
 #include <public/arch-x86/cpuid.h>
 #include <asm/cpuid.h>
+/* TEST */
+#include <asm/hvm/vmx/vmx.h>
+/* TEST END */
 
 #include <compat/hvm/hvm_op.h>
 
@@ -312,7 +315,7 @@ int hvm_set_guest_pat(struct vcpu *v, u64 guest_pat)
             break;
         default:
             HVM_DBG_LOG(DBG_LEVEL_MSR, "invalid guest PAT: %"PRIx64"\n",
-                        guest_pat); 
+                        guest_pat);
             return 0;
         }
 
@@ -1031,7 +1034,7 @@ static int hvm_load_cpu_ctxt(struct domain *d, hvm_domain_context_t *h)
         return -EINVAL;
     }
 
-    /* Older Xen versions used to save the segment arbytes directly 
+    /* Older Xen versions used to save the segment arbytes directly
      * from the VMCS on Intel hosts.  Detect this and rearrange them
      * into the struct segment_register format. */
 #define UNFOLD_ARBYTES(_r)                          \
@@ -1551,7 +1554,7 @@ int hvm_vcpu_initialise(struct vcpu *v)
         /* NB. All these really belong in hvm_domain_initialise(). */
         pmtimer_init(v);
         hpet_init(d);
- 
+
         /* Init guest TSC to start from zero. */
         hvm_set_guest_tsc(v, 0);
     }
@@ -1831,6 +1834,45 @@ int hvm_hap_nested_page_fault(paddr_t gpa, unsigned long gla,
 
         if ( violation )
         {
+/* TEST */
+            {
+                if ( altp2m_active(currd) && (npfec.kind == npfec_kind_in_gpt) )
+                {
+                    ve_info_t *veinfo;
+                    bool writable;
+#if 0
+                    printk("[vPTI] %s: vCPU[%d] EPTP[%d] GPA @ 0x%"PRIpaddr" access (%c%c%c) in-GPT=%d\n", __FUNCTION__, current->vcpu_id, vcpu_altp2m(current).p2midx, gpa,
+                            (( npfec.read_access ) ? 'r' : '-'),
+                            (( npfec.write_access ) ? 'w' : '-'),
+                            (( npfec.insn_fetch ) ? 'x' : '-'),
+                            (npfec.kind == npfec_kind_in_gpt));
+#endif
+
+                    veinfo = hvm_map_guest_frame_rw(gfn_x(gaddr_to_gfn((unsigned long)vcpu_altp2m(current).veinfo_pg)), 0, &writable);
+                    if ( !veinfo )
+                        goto out2;
+                    if ( !writable || veinfo->semaphore == 0 )
+                        goto out1;
+
+                    if ( veinfo->semaphore )
+                    {
+                        //veinfo->exit_reason = EXIT_REASON_EPT_VIOLATION;
+                        veinfo->semaphore = 0;
+                        //veinfo->eptp_index = vcpu_altp2m(current).p2midx;
+
+                        //vmx_vmcs_enter(current);
+                        //__vmread(EXIT_QUALIFICATION, &veinfo->exit_qualification);
+                        //__vmread(GUEST_LINEAR_ADDRESS, &veinfo->gla);
+                        //__vmread(GUEST_PHYSICAL_ADDRESS, &veinfo->gpa);
+                        //vmx_vmcs_exit(current);
+                    }
+out1:
+                    hvm_unmap_guest_frame(veinfo, 0);
+                }
+            }
+out2:
+/* TEST END */
+
             /* Should #VE be emulated for this fault? */
             if ( p2m_is_altp2m(p2m) && !cpu_has_vmx_virt_exceptions )
             {
@@ -1862,7 +1904,7 @@ int hvm_hap_nested_page_fault(paddr_t gpa, unsigned long gla,
      * If this GFN is emulated MMIO or marked as read-only, pass the fault
      * to the mmio handler.
      */
-    if ( (p2mt == p2m_mmio_dm) || 
+    if ( (p2mt == p2m_mmio_dm) ||
          (npfec.write_access &&
           (p2m_is_discard_write(p2mt) || (p2mt == p2m_ioreq_server))) )
     {
@@ -1880,12 +1922,12 @@ int hvm_hap_nested_page_fault(paddr_t gpa, unsigned long gla,
     if ( npfec.write_access && (p2mt == p2m_ram_shared) )
     {
         ASSERT(p2m_is_hostp2m(p2m));
-        sharing_enomem = 
+        sharing_enomem =
             (mem_sharing_unshare_page(currd, gfn, 0) < 0);
         rc = 1;
         goto out_put_gfn;
     }
- 
+
     /* Spurious fault? PoD and log-dirty also take this path. */
     if ( p2m_is_ram(p2mt) )
     {
@@ -1931,7 +1973,7 @@ int hvm_hap_nested_page_fault(paddr_t gpa, unsigned long gla,
         __put_gfn(p2m, gfn);
     __put_gfn(hostp2m, gfn);
  out:
-    /* All of these are delayed until we exit, since we might 
+    /* All of these are delayed until we exit, since we might
      * sleep on event ring wait queues, and we must not hold
      * locks in such circumstance */
     if ( paged )
@@ -2569,7 +2611,7 @@ struct hvm_write_map {
     struct page_info *page;
 };
 
-/* On non-NULL return, we leave this function holding an additional 
+/* On non-NULL return, we leave this function holding an additional
  * ref on the underlying mfn, if any */
 static void *_hvm_map_guest_frame(unsigned long gfn, bool_t permanent,
                                   bool_t *writable)
@@ -4537,13 +4579,15 @@ static int do_altp2m_op(
     case HVMOP_altp2m_get_mem_access:
     case HVMOP_altp2m_change_gfn:
     case HVMOP_altp2m_get_p2m_idx:
+    case HVMOP_altp2m_isolate_pdomain:
         break;
 
     default:
         return -EOPNOTSUPP;
     }
 
-    d = rcu_lock_domain_by_any_id(a.domain);
+    d = ( a.cmd != HVMOP_altp2m_vcpu_enable_notify ) ?
+        rcu_lock_domain_by_any_id(a.domain) : rcu_lock_current_domain();
 
     if ( d == NULL )
         return -ESRCH;
@@ -4617,7 +4661,6 @@ static int do_altp2m_op(
         domain_unpause_except_self(d);
         break;
     }
-
     case HVMOP_altp2m_vcpu_enable_notify:
     {
         struct vcpu *v;
@@ -4629,18 +4672,17 @@ static int do_altp2m_op(
             break;
         }
 
-        if ( !cpu_has_vmx_virt_exceptions )
-        {
-            rc = -EOPNOTSUPP;
-            break;
-        }
+		if ( !cpu_has_vmx_virt_exceptions )
+		{
+			rc = -EOPNOTSUPP;
+			break;
+		}
 
         v = d->vcpu[a.u.enable_notify.vcpu_id];
 
-        rc = altp2m_vcpu_enable_ve(v, _gfn(a.u.enable_notify.gfn));
+	rc = altp2m_vcpu_enable_ve(v, _gfn(a.u.enable_notify.gfn));
         break;
     }
-
     case HVMOP_altp2m_vcpu_disable_notify:
     {
         struct vcpu *v;
@@ -4794,6 +4836,16 @@ static int do_altp2m_op(
         break;
     }
 
+    case HVMOP_altp2m_isolate_pdomain:
+        if ( a.u.isolate_pdomain.pad )
+            rc = -EINVAL;
+        else
+            rc = p2m_isolate_pdomain(d, _gfn(a.u.isolate_pdomain.gfn),
+                                     a.u.isolate_pdomain.restr_access,
+                                     a.u.isolate_pdomain.view,
+                                     a.u.isolate_pdomain.priv_access,
+				     a.u.isolate_pdomain.suppress_ve);
+        break;
     default:
         ASSERT_UNREACHABLE();
     }
@@ -4974,7 +5026,7 @@ long do_hvm_op(unsigned long op, XEN_GUEST_HANDLE_PARAM(void) arg)
         rc = hvmop_set_evtchn_upcall_vector(
             guest_handle_cast(arg, xen_hvm_evtchn_upcall_vector_t));
         break;
-    
+
     case HVMOP_set_param:
         rc = hvmop_set_param(
             guest_handle_cast(arg, xen_hvm_param_t));

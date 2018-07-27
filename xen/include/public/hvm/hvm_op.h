@@ -309,6 +309,21 @@ struct xen_hvm_altp2m_get_vcpu_p2m_idx {
     uint16_t altp2m_idx;
 };
 
+struct xen_hvm_altp2m_isolate_pdomain {
+    /* view */
+    uint16_t view;
+    /* Memory type */
+    uint16_t restr_access; /* xenmem_access_t */
+    uint16_t priv_access; /* xenmem_access_t */
+    uint16_t pad;
+    /* gfn */
+    uint64_t gfn;
+    /* suppress_ve */
+    uint8_t suppress_ve; /* bool */
+};
+typedef struct xen_hvm_altp2m_isolate_pdomain xen_hvm_altp2m_isolate_pdomain_t;
+DEFINE_XEN_GUEST_HANDLE(xen_hvm_altp2m_isolate_pdomain_t);
+
 struct xen_hvm_altp2m_op {
     uint32_t version;   /* HVMOP_ALTP2M_INTERFACE_VERSION */
     uint32_t cmd;
@@ -339,6 +354,9 @@ struct xen_hvm_altp2m_op {
 #define HVMOP_altp2m_vcpu_disable_notify  13
 /* Get the active vcpu p2m index */
 #define HVMOP_altp2m_get_p2m_idx          14
+/* */
+#define HVMOP_altp2m_isolate_pdomain      15
+
     domid_t domain;
     uint16_t pad1;
     uint32_t pad2;
@@ -355,6 +373,7 @@ struct xen_hvm_altp2m_op {
         struct xen_hvm_altp2m_suppress_ve          suppress_ve;
         struct xen_hvm_altp2m_vcpu_disable_notify  disable_notify;
         struct xen_hvm_altp2m_get_vcpu_p2m_idx     get_vcpu_p2m_idx;
+        struct xen_hvm_altp2m_isolate_pdomain      isolate_pdomain;
         uint8_t pad[64];
     } u;
 };
